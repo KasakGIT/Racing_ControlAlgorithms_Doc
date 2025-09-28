@@ -1,0 +1,131 @@
+# Pure Pursuit (Lateral Control)
+
+## 1. Overview
+
+Pure Pursuit is a **geometric path tracking controller**.  
+A “geometric path tracking controller” uses only the geometry of the vehicle’s kinematics and the reference path to command control — it does **not** explicitly model forces, dynamics, or tire-slip. 
+
+In the Pure Pursuit method:
+
+- We pick a **look-ahead point** on the reference path that lies a fixed distance ahead of the vehicle.
+- The control objective is to steer the vehicle so that it moves toward that look-ahead point.
+- Over time, as the vehicle moves, we continuously update that look-ahead point and adjust steering accordingly. 
+
+Typically, the reference point on the vehicle used is the **center of the rear axle**.   
+
+---
+
+## 2. Geometric Setup & Notation
+
+Let us define:
+
+- The vehicle state is \((x, y, \theta)\), where:
+  - \(x, y\) = coordinates of the reference point (e.g. rear axle center)  
+  - \(\theta\) = heading angle (vehicle orientation)  
+- A **look-ahead point** (target point) \((x_{\ell}, y_{\ell})\) is chosen on the path such that the (Euclidean) distance from the vehicle to that point is \(L_d\), the **look-ahead distance**.   
+- In the vehicle’s local coordinate frame (i.e., transform so vehicle is at origin facing along \(x\)-axis), the look-ahead point has coordinates \((x_{\ell}', y_{\ell}')\).  
+- Let \(\alpha\) denote the angle between the vehicle’s heading direction and the line connecting the vehicle to the look-ahead point.  
+
+By geometry, the vehicle is assumed to follow an arc of radius \(R\) that will reach the look-ahead point. The curvature of that arc is \(\kappa = 1/R\).  
+
+### 2.1 Law of Sines Relation & Curvature
+
+From the law of sines:
+
+\[
+\frac{L_d}{\sin(2\alpha)} = \frac{R}{\sin\left(\frac{\pi}{2} - \alpha\right)}
+\]
+
+\[
+\frac{L_d}{2 \sin\alpha \cos\alpha} = \frac{R}{\cos\alpha}
+\]
+
+\[
+\frac{L_d}{\sin\alpha} = 2R
+\]
+
+Thus, the curvature is:
+
+\[
+k = \frac{1}{R} = \frac{2 \sin\alpha}{L_d}
+\]
+
+---
+
+Using the **bicycle model** (with wheelbase \(L\)):
+
+\[
+R = \frac{L}{\tan(\delta)}
+\]
+
+So the steering angle \(\delta\) can be calculated as:
+
+\[
+\delta = \arctan\!\left(\frac{2 L \sin\alpha}{L_d}\right)
+\]
+
+---
+
+### 2.2 Speed-Dependent Look-Ahead Distance
+
+The Pure Pursuit controller assumes no-slip conditions and ignores dynamic forces.  
+If tuned only for low speeds, it can become dangerously aggressive at high speeds.  
+One improvement is to vary the **look-ahead distance** \(L_d\) with the forward velocity \(V_f\):
+
+\[
+L_d = K_{dd} \cdot V_f
+\]
+
+Substituting this into the steering formula:
+
+\[
+\delta = \arctan\!\left(\frac{2 L \sin\alpha}{K_{dd} \cdot V_f}\right)
+\]
+
+where \(K_{dd}\) is a tuning parameter.
+
+
+## 3. Interpretation & Cross-Track Error Relationship
+
+Define the **cross-track error** \(e\) as the lateral distance from the vehicle to the path — effectively the \(y_{\ell}'\) in the setup. The curvature command \(\kappa\) is proportional to \(e\). As \(e\) increases, the curvature (and thus steering correction) increases, pushing the vehicle more aggressively toward the path. :contentReference[oaicite:9]{index=9}
+
+So in effect, Pure Pursuit acts somewhat like a **proportional controller** on cross-track error, with gain = \(2 / L_d^2\). :contentReference[oaicite:10]{index=10}  
+
+Hence tuning \(L_d\) affects how “aggressive” the steering corrections are.
+
+---
+
+## 4. Design Choices & Trade-offs
+
+### 4.1 Look-ahead Distance \(L_d\)
+
+- A **smaller** \(L_d\) → more aggressive turning; better tracking on tight curves, but risk of oscillations or oversteering.
+- A **larger** \(L_d\) → smoother tracking, but less ability to closely follow tight curves.
+
+Some implementations choose to **adjust \(L_d\) as a function of speed** — e.g., larger look-ahead when going fast, smaller when slow — to maintain stability. :contentReference[oaicite:11]{index=11}  
+
+### 4.2 Limitations & Caveats
+
+- Pure Pursuit **ignores dynamic effects** (inertia, tire slip, lateral acceleration limits). It assumes ideal non-slip motion. :contentReference[oaicite:12]{index=12}  
+- If tuned well for low speeds, it may become too aggressive (unstable) at high speed — thus performance degrades or oscillations may appear. :contentReference[oaicite:13]{index=13}  
+- Sharp turns or highly curved paths may challenge the method unless \(L_d\) is sufficiently small (but then that can cause instability elsewhere).  
+
+---
+
+## 5. (Optional) Pseudocode
+
+Here’s a high-level pseudocode sketch for Pure Pursuit:
+
+```text
+Initialize: wheelbase L, fixed look-ahead distance L_d
+
+Loop at each control timestep:
+    1. Determine current vehicle pose (x, y, θ)
+    2. Transform reference path (or future waypoints) into vehicle frame
+    3. Select the look-ahead point (x_ℓ', y_ℓ') that is ≈ distance L_d ahead along the path
+    4. Compute curvature:
+         κ = (2 * y_ℓ') / (L_d^2)
+    5. Compute steering angle:
+         δ = arctan(L * κ)
+    6. Send δ to steering actuator (with possible limits)
+    7. Repeat
